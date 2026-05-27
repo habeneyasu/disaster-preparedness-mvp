@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env
+
+# Runtime artifacts (keep districts_data.csv tracked)
+data/query_log.db
+data/query_log.db-*
+data/disaster_model.pkl
+data/risk_map.html
+data/districts_data.csv

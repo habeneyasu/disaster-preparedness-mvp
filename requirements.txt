@@ -1,0 +1,16 @@
+# Web Server and Core Routing Architecture
+
+fastapi>=0.115,<1
+uvicorn[standard]>=0.32,<1
+pydantic==2.7.2
+
+# Generative AI & Machine Learning Compute Layer
+transformers==4.41.2
+torch==2.3.1
+scikit-learn==1.5.0
+pandas==2.2.2
+numpy==1.26.4
+
+# Geospatial Engine & UI Integration Layer
+folium==0.16.0
+gradio==4.31.5

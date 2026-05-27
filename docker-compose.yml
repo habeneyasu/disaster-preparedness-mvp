@@ -1,0 +1,14 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/query_log.db}
+      DATA_DIR: /app/data
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    volumes:
+      - ./app:/app/app
+      - ./data:/app/data
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
