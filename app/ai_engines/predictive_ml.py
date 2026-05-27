@@ -35,6 +35,7 @@ class ModelBundle:
     classifier: RandomForestClassifier
     vectorizer: TfidfVectorizer
     scaler: StandardScaler
+    training_accuracy: float | None = None
 
 
 def _districts() -> pd.DataFrame:
@@ -123,7 +124,12 @@ def _train() -> ModelBundle:
             settings.CLASSIFICATION_ACCURACY_TARGET,
         )
 
-    bundle = ModelBundle(classifier=clf, vectorizer=vectorizer, scaler=scaler)
+    bundle = ModelBundle(
+        classifier=clf,
+        vectorizer=vectorizer,
+        scaler=scaler,
+        training_accuracy=float(accuracy),
+    )
     settings.ensure_data_dir()
     with settings.MODEL_PATH.open("wb") as f:
         pickle.dump(bundle, f)
@@ -147,6 +153,23 @@ def _get_bundle() -> ModelBundle:
         return _BUNDLE
 
 
+def _training_accuracy(bundle: ModelBundle) -> float:
+    stored = getattr(bundle, "training_accuracy", None)
+    if stored is not None:
+        return float(stored)
+    df = _districts()
+    labels = [_derive_label(row) for _, row in df.iterrows()]
+    texts = [_feature_text(row, label) for (_, row), label in zip(df.iterrows(), labels)]
+    x, _, _ = _features(df, texts, bundle.scaler, bundle.vectorizer, fit=False)
+    return float(accuracy_score(labels, bundle.classifier.predict(x)))
+
+
+def get_classification_benchmark() -> tuple[float, float]:
+    """Return (model training accuracy, configured benchmark target)."""
+    bundle = _get_bundle()
+    return _training_accuracy(bundle), settings.CLASSIFICATION_ACCURACY_TARGET
+
+
 def predict_risk(district: str, summary: str) -> tuple[str, float]:
     """Return (predicted_risk, confidence) for a district and NLP summary."""
     bundle = _get_bundle()
@@ -168,3 +191,8 @@ def predict_risk(district: str, summary: str) -> tuple[str, float]:
 def get_district_coordinates(district: str) -> tuple[float, float]:
     row = _district_row(district)
     return float(row[settings.LAT_COLUMN]), float(row[settings.LON_COLUMN])
+
+
+def list_districts() -> list[str]:
+    df = _districts()
+    return df[settings.DISTRICT_ID_COLUMN].tolist()

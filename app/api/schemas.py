@@ -33,3 +33,7 @@ class HistoryItem(BaseModel):
 
 class HistoryResponse(BaseModel):
     items: list[HistoryItem]
+
+
+class DistrictsResponse(BaseModel):
+    districts: list[str]
