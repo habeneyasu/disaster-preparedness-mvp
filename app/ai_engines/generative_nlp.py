@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from typing import Any
 
@@ -72,7 +73,38 @@ def _summary_length_bounds(summarizer: Any, text: str) -> tuple[int, int]:
     if min_length >= max_length:
         min_length = max(1, max_length - 1)
 
-    return max_length, min_length
+def _output_lengths(input_tokens: int) -> tuple[int, int]:
+    # Keep outputs well below input length to reduce extractive copy behavior.
+    max_len = min(settings.SUMMARIZATION_MAX_LENGTH, max(32, input_tokens // 3))
+    min_len = min(settings.SUMMARIZATION_MIN_LENGTH, max(16, max_len // 4))
+    if min_len >= max_len:
+        min_len = max(1, max_len - 1)
+    return max_len, min_len
+
+
+def _is_extractive_echo(summary: str, source: str) -> bool:
+    a = summary.strip().lower()
+    b = source.strip().lower()
+    if len(a) < 24:
+        return False
+    probe = a[: min(len(a), 120)]
+    return b.startswith(probe) or probe in b[: len(probe) + 80]
+
+
+def _heuristic_summary(text: str, max_chars: int = 480) -> str:
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s.strip()]
+    if not sentences:
+        return _truncate_fallback(text)
+    parts: list[str] = []
+    length = 0
+    for sentence in sentences:
+        if length + len(sentence) > max_chars and parts:
+            break
+        parts.append(sentence)
+        length += len(sentence) + 1
+    if parts:
+        return " ".join(parts)
+    return _truncate_fallback(text)
 
 
 def _get_pipeline() -> Any:
@@ -118,25 +150,26 @@ def generate_report_summary(raw_report: str) -> str:
             "Summarizing with max_length=%s, min_length=%s", max_length, min_length
         )
 
-        # Input is pre-truncated; do not pass truncation=True (output max_length differs).
-        result = summarizer(
-            model_input,
-            max_length=max_length,
-            min_length=min_length,
-            do_sample=False,
-        )
-
-        if result and isinstance(result, list) and "summary_text" in result[0]:
-            summary = str(result[0]["summary_text"]).strip()
-            if summary and summary != model_input:
-                return summary
-            logger.warning(
-                "Model returned unchanged text; using truncated original as fallback"
+        def _run(max_l: int, min_l: int) -> str:
+            result = pipe(
+                model_input,
+                max_length=max_l,
+                min_length=min_l,
+                do_sample=False,
             )
-            return _truncate_fallback(cleaned_report)
+            return str(result[0]["summary_text"]).strip()
 
-        raise ValueError("Unexpected summarization pipeline response format")
+        summary = _run(max_len, min_len)
+        if summary and _is_extractive_echo(summary, text):
+            retry_max = max(24, max_len // 2)
+            retry_min = min(min_len, max(8, retry_max // 3))
+            if retry_min >= retry_max:
+                retry_min = max(1, retry_max - 1)
+            summary = _run(retry_max, retry_min)
 
+        if summary and summary != model_input and not _is_extractive_echo(summary, text):
+            return summary
+        return _heuristic_summary(text)
     except (OSError, RuntimeError, ValueError, IndexError) as err:
         logger.warning(
             "Summarization failed (%s: %s); using truncated original text",
